@@ -1,9 +1,10 @@
-module Main where
+module Main
+  where
 
 import Data.List
 import Prelude
 
-import Data.Grid (Grid, Coordinates)
+import Data.Grid (Grid, Coordinates, modifyAt, updateAt')
 import Data.Grid as Grid
 import Data.Int as I
 import Data.Maybe (Maybe(..))
@@ -22,14 +23,18 @@ width = 15
 height :: Int
 height = 15
 
-main :: Effect Unit
-main = runReactor reactor { title: "Bomberman", width, height }
+bombLimit :: Int
+bombLimit = 1
 
-data Tile = Wall | Empty
+main :: Effect Unit
+main = runReactor reactor { title: "Bomberman ", width, height }
+type Bomb = {time :: Int}
+
+data Tile = Wall | Empty | Bomb
 
 derive instance tileEq :: Eq Tile
 
-type World = { player :: Coordinates, board :: Grid Tile, crates :: List Coordinates }
+type World = { player :: Coordinates, board :: Grid Tile, crates :: List Coordinates, bombsPlaced :: Int }
 
 isBorder :: Coordinates -> Boolean
 isBorder { x, y } = x == 0 || x == (width - 1) || y == 0 || y == (height - 1)
@@ -37,15 +42,32 @@ isBorder { x, y } = x == 0 || x == (width - 1) || y == 0 || y == (height - 1)
 generateWalls :: Coordinates -> Boolean
 generateWalls {x, y} = I.even x && I.even y
 
-generateCrates :: Int -> Int -> List Coordinates
-generateCrates x y = if x == width then generateCrates 0 (y + 1)  else if y == height then Nil else
-  (if  (I.odd x && I.odd y) && ((x > 1) || (y > 1)) && (x < (width - 1)) && (y < (height - 1)) then {x,y} : (generateCrates (x + 1) y) else  (generateCrates (x + 1) y)) 
+generateCrates :: List Coordinates
+generateCrates = generateCratesH 0 0
+
+generateCratesH :: Int -> Int -> List Coordinates
+generateCratesH x y = 
+  if x == width then generateCratesH 0  $ y + 1  
+  else if y == height then Nil else
+    if  (I.odd x && I.odd y) && ((x > 1) || (y > 1)) && (x < (width - 1)) && (y < (height - 1)) 
+      then {x,y} : (generateCratesH (x + 1) y) 
+    else  generateCratesH (x + 1) y
+
+placeBomb :: Reaction World
+placeBomb = do
+  {player, board, bombsPlaced}  <- getW
+  if bombsPlaced < bombLimit then
+    updateW_ {board: (updateAt' player Bomb board), bombsPlaced: bombsPlaced + 1}
+  else
+    executeDefaultBehavior
+
+--updateBomb :: Coordinates -> Reaction World
 
 reactor :: Reactor World
 reactor = { initial, draw, handleEvent, isPaused: const true }
 
 initial :: World
-initial = { player: { x: 1, y: 1 }, board, crates: (generateCrates 0 0)}
+initial = { player: { x: 1, y: 1 }, board, crates: (generateCrates), bombsPlaced: 0}
   where
   board = Grid.construct width height (\point -> if isBorder point || generateWalls point then Wall else Empty)
 
@@ -57,6 +79,7 @@ draw { player, board, crates } = do
   where
   drawTile Empty = Just Color.green100
   drawTile Wall = Just Color.gray800
+  drawTile Bomb = Just Color.blue800
 
 
 handleEvent :: Event -> Reaction World
@@ -66,6 +89,7 @@ handleEvent event = do
     KeyPress { key: "ArrowRight" } -> movePlayer { x: 1, y: 0 }
     KeyPress { key: "ArrowDown" } -> movePlayer { x: 0, y: 1 }
     KeyPress { key: "ArrowUp" } -> movePlayer { x: 0, y: -1 }
+    KeyPress { key: " "} -> placeBomb
 
     _ -> executeDefaultBehavior
 
