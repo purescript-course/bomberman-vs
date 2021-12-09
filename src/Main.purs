@@ -13,9 +13,10 @@ import Effect (Effect)
 import Effect.Console (log)
 import Reactor (Reactor, executeDefaultBehavior, getW, runReactor, updateW_)
 import Reactor.Events (Event(..))
+import Reactor.Graphics.Colors (red600)
 import Reactor.Graphics.Colors as Color
 import Reactor.Graphics.Drawing (Drawing, drawGrid, fill, tile)
-import Reactor.Reaction (Reaction)
+import Reactor.Reaction (Reaction, ReactionM(..))
 
 width :: Int
 width = 15
@@ -26,16 +27,21 @@ height = 15
 bombLimit :: Int
 bombLimit = 1
 
+ticksToExplode :: Int
+ticksToExplode = 4
+
 main :: Effect Unit
 main = runReactor reactor { title: "Bomberman ", width, height }
-type Bomb = {time :: Int}
 
 data Tile = Wall | Empty | Bomb
 
+
+
+type Bomb = {location :: Coordinates, time :: Int}
+
 derive instance tileEq :: Eq Tile
 
-type World = { player :: Coordinates, board :: Grid Tile, crates :: List Coordinates, bombsPlaced :: Int }
-
+type World = { player :: Coordinates, board :: Grid Tile, crates :: List Coordinates, bombsPlaced :: Int, bombs :: List Bomb}
 isBorder :: Coordinates -> Boolean
 isBorder { x, y } = x == 0 || x == (width - 1) || y == 0 || y == (height - 1)
 
@@ -53,21 +59,11 @@ generateCratesH x y =
       then {x,y} : (generateCratesH (x + 1) y) 
     else  generateCratesH (x + 1) y
 
-placeBomb :: Reaction World
-placeBomb = do
-  {player, board, bombsPlaced}  <- getW
-  if bombsPlaced < bombLimit then
-    updateW_ {board: (updateAt' player Bomb board), bombsPlaced: bombsPlaced + 1}
-  else
-    executeDefaultBehavior
-
---updateBomb :: Coordinates -> Reaction World
-
 reactor :: Reactor World
 reactor = { initial, draw, handleEvent, isPaused: const true }
 
 initial :: World
-initial = { player: { x: 1, y: 1 }, board, crates: (generateCrates), bombsPlaced: 0}
+initial = { player: { x: 1, y: 1 }, board, crates: (generateCrates), bombsPlaced: 0, bombs: Nil}
   where
   board = Grid.construct width height (\point -> if isBorder point || generateWalls point then Wall else Empty)
 
@@ -96,6 +92,7 @@ handleEvent event = do
 
 movePlayer :: { x :: Int, y :: Int } -> Reaction World
 movePlayer { x: xd, y: yd } = do
+  updateBombs
   { player: { x, y }, board, crates } <- getW
   let newPlayerPosition = { x: x + xd, y: y + yd }
   when (isEmpty newPlayerPosition board) $
@@ -105,3 +102,41 @@ movePlayer { x: xd, y: yd } = do
     updateW_ { player: newPlayerPosition }
   where
   isEmpty position board = Grid.index board position == Just Empty
+
+placeBomb :: Reaction World
+placeBomb = do
+  updateBombs
+  {player, board, bombsPlaced, bombs}  <- getW
+  if bombsPlaced < bombLimit then
+    updateW_ {board: (updateAt' player (Bomb ) board), bombsPlaced: bombsPlaced + 1, bombs: ({location: player, time: 0} : bombs)}
+  else
+    executeDefaultBehavior
+    
+ 
+updateBombs :: Reaction World
+updateBombs = do
+  {bombs} <- getW
+  updateW_ {bombs:(map (\a -> if a.time < ticksToExplode then  {location: a.location, time: a.time + 1} else {location: a.location, time: a.time}) bombs) }
+    
+ -- foldr (\a b-> if a.time == ticksToExplode then b else a ) Nil bombs
+  --filter (\a -> a.time < ticksToExplode) bombs
+{-    
+    if a.time == ticksToExplode 
+    then do 
+  --    updateW_ {board: (updateAt' a.location Empty board)}
+      {location: a.location, time: a.time + 1} 
+    else {location: a.location, time: a.time + 1}) bombs)}
+-}
+
+{-
+updateBombsH :: List Bomb -> List Bomb
+updateBombsH Nil = Nil
+updateBombsH (Cons _ _) = Nil
+updateBobmsH (Cons {location, time} r) = 
+  if time >= ticksToExplode then 
+    {board} <- getW
+    updateW_ {board: (updateAt' location Empty board)}
+    updateBombsH Nil
+  else 
+    {location: location, time: time + 1} : updateBobmsH r
+    -}
