@@ -1,20 +1,28 @@
-
 module Main
   where
 
-import Data.List (List(..), elem, filter, length, (:))
+import Debug
 import Prelude
-import Data.Grid (Coordinates, Grid)
+
+import Color (distance)
+import Data.Grid (Grid, Coordinates)
 import Data.Grid as Grid
 import Data.Int as I
-import Data.Maybe (Maybe(..))
+import Data.JSDate (getTime)
+import Data.List (List(..), elem, filter, length, (:), delete)
+import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Traversable (for_)
 import Effect (Effect)
+import Effect.Class (liftEffect)
+import Effect.Exception (throwException)
+import Effect.Random (randomInt)
+import Halogen.HTML (elementNS)
 import Reactor (Reactor, executeDefaultBehavior, getW, runReactor, updateW_)
 import Reactor.Events (Event(..))
 import Reactor.Graphics.Colors as Color
 import Reactor.Graphics.Drawing (Drawing, drawGrid, fill, tile)
-import Reactor.Reaction (Reaction)
+import Reactor.Reaction (Reaction, ReactionM)
+import Web.TouchEvent.EventTypes (touchend)
 
 width :: Int
 width = 15
@@ -26,10 +34,16 @@ bombLimit :: Int
 bombLimit = 2
 
 ticksToExplode :: Int
-ticksToExplode = 4
+ticksToExplode = 5
 
 tickSpeed :: Number
 tickSpeed = 0.4
+
+explosionDuration :: Int
+explosionDuration = 1
+
+explosionLength :: Int
+explosionLength = 4
 
 main :: Effect Unit
 main = runReactor reactor { title: "Bomberman ", width, height }
@@ -38,78 +52,90 @@ data Tile = Wall | Empty
 
 type Bomb = {location :: Coordinates, time :: Int}
 
+data Direction = Left | Right | Up | Down
+
+type Explosion = {location :: Coordinates, time :: Int}
+
 derive instance tileEq :: Eq Tile
 
-type World = { player :: Coordinates, board :: Grid Tile, crates :: List Coordinates, bombs :: List Bomb, lastTick :: Number}
+type World = { player :: Coordinates, board :: Grid Tile, crates :: List Coordinates, bombs :: List Bomb, lastTick :: Number, cratesGenerated :: Boolean, inExplosion :: List Explosion}
 isBorder :: Coordinates -> Boolean
 isBorder { x, y } = x == 0 || x == (width - 1) || y == 0 || y == (height - 1)
 
 generateWalls :: Coordinates -> Boolean
 generateWalls {x, y} = I.even x && I.even y
-
-generateCrates :: List Coordinates
+ 
+generateCrates :: Reaction World
 generateCrates = generateCratesH 0 0
   where 
     generateCratesH x y = 
       if x == width then generateCratesH 0  $ y + 1  
-      else if y == height then Nil else
+      else if y == height then executeDefaultBehavior else
         if  (I.odd x && I.odd y) && ((x > 1) || (y > 1)) && (x < (width - 1)) && (y < (height - 1)) 
-          then {x,y} : (generateCratesH (x + 1) y) 
+          then  do
+            {crates} <- getW
+            num <- (liftEffect (randomInt 0 1))
+            if num == 1 then do
+              updateW_{crates: ({x,y} : crates), cratesGenerated: true}
+              generateCratesH (x + 1) y
+            else
+              generateCratesH (x + 1) y
         else  generateCratesH (x + 1) y
-
-
 
 reactor :: Reactor World
 reactor = { initial, draw, handleEvent, isPaused: const false }
 
 initial :: World
-initial = { player: { x: 1, y: 1 }, board, crates: (generateCrates), bombs: Nil, lastTick: 0.0}
+initial = { player: { x: 1, y: 1 }, board, crates: Nil, bombs: Nil, lastTick: 0.0, cratesGenerated: false, inExplosion: Nil}
   where
   board = Grid.construct width height (\point -> if isBorder point || generateWalls point then Wall else Empty)
 
 draw :: World -> Drawing
-draw { player, board, crates, bombs } = do
+draw { player, board, crates, bombs, inExplosion } = do
   drawGrid board drawTile
   for_ crates $ \block -> fill Color.yellow400 $ tile block
   for_ bombs $ \block -> fill Color.red600 $ tile block.location
+  for_ inExplosion $ \block -> fill Color.yellow600 $ tile block.location
   fill Color.blue500 $ tile player
   where
   drawTile Empty = Just Color.green100
   drawTile Wall = Just Color.gray800
-  
-
 
 handleEvent :: Event -> Reaction World
 handleEvent event = do
-  {lastTick} <- getW
+  {lastTick, cratesGenerated} <- getW
   case event of
-    Tick {delta} -> if lastTick >= tickSpeed then updateBombs else updateW_ {lastTick: lastTick + delta}
+    Tick {delta} ->  if lastTick >= tickSpeed then updateBombs else updateW_ {lastTick: lastTick + delta}
     KeyPress { key: "ArrowLeft" } -> movePlayer { x: -1, y: 0 }
-    KeyPress { key: "ArrowRight" } -> movePlayer { x: 1, y: 0 }
-    KeyPress { key: "ArrowDown" } -> movePlayer { x: 0, y: 1 }
+    KeyPress { key: "ArrowRight" } -> if cratesGenerated == false then do 
+      generateCrates 
+      movePlayer { x: 1, y: 0 }
+      else  movePlayer { x: 1, y: 0 }
+    KeyPress { key: "ArrowDown" } -> if cratesGenerated == false then do 
+      generateCrates 
+      movePlayer { x: 0, y: 1 }
+      else  movePlayer { x: 0, y: 1 }
     KeyPress { key: "ArrowUp" } -> movePlayer { x: 0, y: -1 }
+    KeyPress { key: "b"} -> if cratesGenerated == false then generateCrates else executeDefaultBehavior
     KeyPress { key: " "} -> placeBomb
-
     _ -> executeDefaultBehavior
-
 
 movePlayer :: { x :: Int, y :: Int } -> Reaction World
 movePlayer { x: xd, y: yd } = do
   { player: { x, y }, board, crates, bombs } <- getW
   let newPlayerPosition = { x: x + xd, y: y + yd }
-  let bombsLocations = getBombsCor bombs
+  let bombsLocations = getCor bombs
   when (isEmpty newPlayerPosition board) $
     if elem newPlayerPosition crates || elem newPlayerPosition bombsLocations  then
       executeDefaultBehavior
     else
-    updateW_ { player: newPlayerPosition }
+    updateW_ {player: newPlayerPosition}
   where
   isEmpty position board = Grid.index board position == Just Empty
 
-
-getBombsCor :: List Bomb -> List Coordinates
-getBombsCor Nil = Nil
-getBombsCor (Cons f r) = (f.location) : (getBombsCor r)
+getCor ∷ ∀ (t35 ∷ Type) (t39 ∷ Row Type). List { location ∷ t35 | t39 } → List t35
+getCor Nil = Nil
+getCor (Cons f r) = (f.location) : (getCor r)
 
 placeBomb :: Reaction World
 placeBomb = do
@@ -118,9 +144,62 @@ placeBomb = do
     updateW_ {bombs: (Cons {location: player, time: 0} bombs)}
   else
     executeDefaultBehavior
-    
+
+deleteBomb :: Coordinates -> Reaction World
+deleteBomb location = do
+  {bombs} <- getW
+  deleteBombH location bombs
+  where
+  deleteBombH _ Nil = executeDefaultBehavior
+  deleteBombH cor (f:r) = 
+    if f.location == cor then do
+      {bombs} <- getW
+      updateW_ {bombs: (delete f bombs)}
+    else 
+      deleteBombH cor r
 
 updateBombs :: Reaction World
 updateBombs = do
+  updateExplosions
   {bombs} <- getW
-  updateW_ {bombs: (filter (\a -> a.time < ticksToExplode) (map (\a -> {location: a.location, time: a.time + 1}) bombs )), lastTick: 0.0}
+  updateBombsH bombs Nil
+  where
+  updateBombsH Nil acc = do updateW_ {bombs: acc, lastTick: 0.0}
+  updateBombsH (f:r) acc =
+    if f.time >= ticksToExplode then do
+      createExplosion f.location  
+      updateBombsH r acc      
+    else
+      updateBombsH r ({location: f.location, time: f.time + 1} : acc)
+
+updateExplosions :: Reaction World
+updateExplosions = do
+  {inExplosion} <- getW
+  updateW_ {inExplosion: (map (\b -> {location: b.location, time: b.time + 1}) (filter (\a -> a.time <= explosionDuration) inExplosion))}
+
+createExplosion :: Coordinates -> Reaction World
+createExplosion cor = do
+  deleteBomb cor
+  updateW_ {inExplosion: ({location: {x:cor.x,y:cor.y}, time: 0}: Nil)}
+  createExplosionH cor 0 Left 
+  createExplosionH cor 0 Right
+  createExplosionH cor 0 Down 
+  createExplosionH cor 0 Up 
+  where
+  createExplosionH {x, y} dist dir = do
+    {crates, board, inExplosion, bombs} <- getW
+    let bombsLocations = getCor bombs
+    if dist == explosionLength then executeDefaultBehavior   
+    else if fromMaybe Wall (Grid.index board {x,y}) == Wall then 
+      executeDefaultBehavior 
+    else if elem {x,y} crates then do
+      updateW_ {inExplosion: ({location: {x,y}, time: 0} : inExplosion), crates: (delete {x,y} crates)}
+    else if elem {x,y} bombsLocations then do
+      createExplosion {x, y}
+    else do
+      updateW_ {inExplosion: ({location: {x,y}, time: 0} : inExplosion)}
+      case dir of
+        Up -> do createExplosionH {x, y: y - 1} (dist + 1) dir
+        Down -> do createExplosionH {x, y: y + 1} (dist + 1) dir
+        Left -> do createExplosionH {x: x - 1, y} (dist + 1) dir
+        Right -> do createExplosionH {x: x + 1, y} (dist + 1) dir
