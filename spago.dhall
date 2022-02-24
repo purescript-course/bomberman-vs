@@ -12,16 +12,23 @@ to generate this file without the comments in this block.
 -}
 { name = "my-project"
 , dependencies =
-  [ "console"
+  [ "colors"
+  , "console"
+  , "debug"
   , "effect"
+  , "exceptions"
   , "foldable-traversable"
   , "grid-reactors"
+  , "halogen"
   , "integers"
+  , "js-date"
   , "lists"
   , "maybe"
   , "prelude"
   , "psci-support"
+  , "random"
   , "transformers"
+  , "web-touchevents"
   ]
 , packages = ./packages.dhall
 , sources = [ "src/**/*.purs", "test/**/*.purs" ]
