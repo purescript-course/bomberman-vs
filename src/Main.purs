@@ -49,7 +49,7 @@ reactor :: Reactor World
 reactor = { initial, draw, handleEvent, isPaused: const false }
 
 main :: Effect Unit
-main = runReactor reactor { title: "B o m b e r m a n ", width, height }
+main = runReactor reactor { title: "B o m b e r m in ", width, height }
 
 data Tile = Wall | Empty
 
@@ -186,7 +186,7 @@ moveEnemy :: Reaction World
 moveEnemy = do
   {crates, board, enemy, bombs, lastEnemyPosition} <- getW
   let bombsLocations = getCor bombs
-  let possibleLocations = filter (\a -> a /= lastEnemyPosition || (not (elem a crates) || not (elem a bombsLocations)) || (isEmpty a board)) ({x: enemy.x, y: (enemy.y - 1)} : {x: enemy.x, y: (enemy.y + 1)} : {x: (enemy.x - 1), y: enemy.y} : {x: (enemy.x + 1), y: enemy.y} : Nil)
+  let possibleLocations = filter (\a -> a /= lastEnemyPosition && (not (elem a crates) && not (elem a bombsLocations)) && (isEmpty a board)) ({x: enemy.x, y: (enemy.y - 1)} : {x: enemy.x, y: (enemy.y + 1)} : {x: (enemy.x - 1), y: enemy.y} : {x: (enemy.x + 1), y: enemy.y} : Nil)
   if possibleLocations == Nil then 
     executeDefaultBehavior
   else do
