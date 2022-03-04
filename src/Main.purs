@@ -22,6 +22,7 @@ import Reactor.Events (Event(..))
 import Reactor.Graphics.Colors as Color
 import Reactor.Graphics.Drawing (Drawing, drawGrid, fill, tile)
 import Reactor.Reaction (Reaction, ReactionM)
+import Web.HTML.Event.BeforeUnloadEvent (returnValue)
 import Web.TouchEvent.EventTypes (touchend)
 
 width :: Int
@@ -51,20 +52,44 @@ reactor = { initial, draw, handleEvent, isPaused: const false }
 main :: Effect Unit
 main = runReactor reactor { title: "B o m b e r m in ", width, height }
 
+
+{-
+createReactor :: Effect (Reactor World)
+createReactor = do
+  initial <- createInitialWorld
+  pure { initial, draw, handleEvent, isPaused: const false }
+-}
+createInitialWorld :: Effect World
+createInitialWorld = do
+  pure { player, enemy, board, crates, bombs, lastTick: 0.0, inExplosion, lastEnemyPosition}
+  where
+  player = {location:{ x: 1, y: 1 }, health: 100 }
+  enemy = {x: (width - 2), y: (height - 2)}
+  lastEnemyPosition = enemy
+  bombs = Nil
+  crates = Nil
+  inExplosion = Nil
+  board = Grid.construct width height (\point -> if isBorder point || generateWalls point then Wall else Empty)
+
+
+
+
 data Tile = Wall | Empty
 
 type Bomb = {location :: Coordinates, time :: Int}
 
 data Direction = Left | Right | Up | Down
 
+type Player = {location :: Coordinates, health :: Int}
+
 type Explosion = {location :: Coordinates, time :: Int}
 
 derive instance tileEq :: Eq Tile
 
-type World = { player :: Coordinates, enemy :: Coordinates, board :: Grid Tile, crates :: List Coordinates, bombs :: List Bomb, lastTick :: Number, cratesGenerated :: Boolean, inExplosion :: List Explosion, lastEnemyPosition :: Coordinates}
+type World = { player :: Player, enemy :: Coordinates, board :: Grid Tile, crates :: List Coordinates, bombs :: List Bomb, lastTick :: Number, inExplosion :: List Explosion, lastEnemyPosition :: Coordinates}
 
 initial :: World
-initial = { player: { x: 1, y: 1 }, board, crates: Nil, bombs: Nil, lastTick: 0.0, cratesGenerated: false, inExplosion: Nil, enemy: {x: (width - 2), y: (height - 2)}, lastEnemyPosition: {x: (width - 2), y: (height - 2)}}
+initial = { player: {location:{ x: 1, y: 1 }, health: 100 }, board, crates: Nil, bombs: Nil, lastTick: 0.0, inExplosion: Nil, enemy: {x: (width - 2), y: (height - 2)}, lastEnemyPosition: {x: (width - 2), y: (height - 2)}}
   where
   board = Grid.construct width height (\point -> if isBorder point || generateWalls point then Wall else Empty)
 
@@ -85,7 +110,7 @@ generateCrates = generateCratesH 0 0
             {crates} <- getW
             num <- (liftEffect (randomInt 0 1))
             if num == 1 then do
-              updateW_{crates: ({x,y} : crates), cratesGenerated: true}
+              updateW_{crates: ({x,y} : crates)}
               generateCratesH (x + 1) y
             else
               generateCratesH (x + 1) y
@@ -97,44 +122,45 @@ draw { player, board, crates, bombs, inExplosion, enemy } = do
   for_ crates $ \block -> fill Color.yellow400 $ tile block
   for_ bombs $ \block -> fill Color.red600 $ tile block.location
   for_ inExplosion $ \block -> fill Color.yellow600 $ tile block.location
-  fill Color.blue500 $ tile player
+  fill Color.blue500 $ tile player.location
   fill Color.green500 $ tile enemy
   where
   drawTile Empty = Just Color.green100
   drawTile Wall = Just Color.gray800
 
+
 handleEvent :: Event -> Reaction World
 handleEvent event = do
-  {lastTick, cratesGenerated} <- getW
+  {lastTick, player, inExplosion} <- getW
   case event of
-    Tick {delta} ->  
-      if lastTick >= tickSpeed then do 
+    Tick {delta} -> do
+      let explosionLocation = getCor inExplosion
+      if player.health <= 0 then 
+        --resetWorld
+        updateW_ {player: {location: {x:1,y:1}, health: 100}}
+      else if elem player.location explosionLocation then do
+        updateW_ {player: {location: player.location, health: (player.health - 1)}}
+      else if lastTick >= tickSpeed then do 
         updateBombs 
         moveEnemy 
       else updateW_ {lastTick: lastTick + delta}
     KeyPress { key: "ArrowLeft" } -> movePlayer { x: -1, y: 0 }
-    KeyPress { key: "ArrowRight" } -> if not cratesGenerated then do 
-      generateCrates 
-      movePlayer { x: 1, y: 0 }
-      else  movePlayer { x: 1, y: 0 }
-    KeyPress { key: "ArrowDown" } -> if not cratesGenerated  then do 
-      generateCrates 
-      movePlayer { x: 0, y: 1 }
-      else  movePlayer { x: 0, y: 1 }
+    KeyPress { key: "ArrowRight" } -> movePlayer { x: 1, y: 0 }
+    KeyPress { key: "ArrowDown" } -> movePlayer { x: 0, y: 1 }
     KeyPress { key: "ArrowUp" } -> movePlayer { x: 0, y: -1 }
     KeyPress { key: " "} -> placeBomb
     _ -> executeDefaultBehavior
 
 movePlayer :: { x :: Int, y :: Int } -> Reaction World
 movePlayer { x: xd, y: yd } = do
-  { player: { x, y }, board, crates, bombs } <- getW
+  { player: {location:{ x, y }, health: health}, board, crates, bombs } <- getW
   let newPlayerPosition = { x: x + xd, y: y + yd }
   let bombsLocations = getCor bombs
   when (isEmpty newPlayerPosition board) $
     if elem newPlayerPosition crates || elem newPlayerPosition bombsLocations  then
       executeDefaultBehavior
     else
-    updateW_ {player: newPlayerPosition}
+    updateW_ {player: {location: newPlayerPosition, health: health}}
   where
   isEmpty position board = Grid.index board position == Just Empty
 
@@ -144,9 +170,9 @@ getCor (Cons f r) = (f.location) : (getCor r)
 
 placeBomb :: Reaction World
 placeBomb = do
-  {bombs, player}  <- getW
+  {bombs, player: {location, health: _}}  <- getW
   if length bombs < bombLimit then
-    updateW_ {bombs: (Cons {location: player, time: 0} bombs)}
+    updateW_ {bombs: (Cons {location: location, time: 0} bombs)}
   else
     executeDefaultBehavior
 
