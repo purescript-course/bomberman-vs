@@ -29,7 +29,6 @@ in  upstream
       , "transformers"
       , "tuples"
       , "web-events"
-      , "web-html"
       , "web-uievents"
       ]
     , repo = "https://github.com/Eugleo/purescript-grid-reactors.git"
