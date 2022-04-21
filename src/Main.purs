@@ -57,7 +57,7 @@ main :: Effect Unit
 main = do
   reactor <- createReactor
   runReactor reactor { title: "Bombera ", width, height, widgets: [
-  "section_hp" /\ Section {title: "Health"}, 
+  "section_health" /\ Section {title: "Health"}, 
   "label_health" /\ Label {content: show $ 100}, 
   "section_score" /\ Section {title: "Score"}, 
   "label_score" /\ Label {content: show 0}]}
@@ -149,16 +149,14 @@ timer = do
 
 checkPlayer :: Reaction World
 checkPlayer = do
-  {player, board} <- getW
-  if player.health <= 0 then do
-    updateW_ {player: {location: {x: 1, y: 1}, health: 100, bombs: 0}, score: 0}
-    widget "label_health" $ Label { content: show player.health }
-  else if isExplosion (fromMaybe Empty (Grid.index board player.location)) then do
-    updateW_ {player: {location: player.location, health: player.health - bombStrength, bombs: player.bombs}}
-    widget "label_health" $ Label { content: show player.health }
+  {player: p@{health}, board} <- getW
+  if health <= 0 then do
+    updateW_ {player: p {health = 100}, score: 0}
+  else if isExplosion (fromMaybe Empty (Grid.index board p.location)) then do
+    updateW_ {player: p {health = health - bombStrength}}
   else do
     executeDefaultBehavior
-    widget "label_health" $ Label { content: show player.health }
+  widget "label_health" $ Label { content: show health }
 
 checkEnemies :: Reaction World 
 checkEnemies = do 
@@ -184,10 +182,10 @@ checkEnemies = do
 
 movePlayer :: { x :: Int, y :: Int } -> Direction -> Reaction World
 movePlayer { x: xd, y: yd } dir = do
-  { player: {location:{ x, y }, health: health, bombs}, board} <- getW
+  { player: p@{location:{x,y}}, board} <- getW
   let newPlayerPosition = { x: x + xd, y: y + yd }
   if (isEmpty newPlayerPosition board) then
-    updateW_ {player: {location: newPlayerPosition, health: health, bombs: bombs}}
+    updateW_ {player: p{location = newPlayerPosition}}
   else if isBomb ( fromMaybe Empty (Grid.index board newPlayerPosition)) && (isEmpty { x: x + (2 * xd), y: y + (2 * yd) } board) then do 
     let bomb = fromMaybe Empty (Grid.index board newPlayerPosition)
     pushBomb newPlayerPosition { x: x + (2 * xd), y: y + (2 * yd) } dir bomb
@@ -200,10 +198,10 @@ movePlayer { x: xd, y: yd } dir = do
 
 pushBomb :: Coordinates -> Coordinates -> Direction -> Tile -> Reaction World 
 pushBomb old new dir (Bomb bomb) = do 
-  {board, player} <- getW 
+  {board, player: p@{location}} <- getW 
   updateW_ {board: Grid.updateAt' old Empty board }
   {board} <- getW 
-  updateW_ {player: {location: old, health: player.health, bombs: player.bombs}, board: Grid.updateAt' new (Bomb {timer: bomb.timer, slide: Just dir, owner: bomb.owner}) board }
+  updateW_ {player: p{location = old}, board: Grid.updateAt' new (Bomb {timer: bomb.timer, slide: Just dir, owner: bomb.owner}) board }
 pushBomb _ _ _ _ = executeDefaultBehavior
 
 
@@ -224,8 +222,8 @@ placeEnemyBomb cor owner = do
 
 gainBomb :: Owner -> Int -> Reaction World
 gainBomb Player int = do
-  {player} <- getW 
-  updateW_ {player: {location: player.location, health: player.health, bombs: player.bombs - int}}
+  {player: p@{bombs}} <- getW 
+  updateW_ {player: p{bombs = bombs - int}}
 gainBomb (Enemy {id: id}) int = do 
   {enemies} <- getW
   updateW_ {enemies: gainBombEnemy enemies}
