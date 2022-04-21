@@ -31,7 +31,10 @@ height = 15
 
 bombLimit :: Int
 bombLimit = 4
- 
+
+bombStrength :: Int
+bombStrength = 1
+
 maxHealth :: Int
 maxHealth = 100
 
@@ -125,6 +128,7 @@ handleEvent event = do
     KeyPress { key: " "} -> placeBomb
     Tick _ -> do
         checkPlayer
+        checkEnemies
         timer
     _ -> executeDefaultBehavior
 
@@ -149,14 +153,30 @@ checkPlayer = do
   if player.health <= 0 then 
     updateW_ {player: {location: {x: 1, y: 1}, health: 100, bombs: 0}}
   else if isExplosion (fromMaybe Empty (Grid.index board player.location)) then 
-    updateW_ {player: {location: player.location, health: player.health - 1, bombs: player.bombs}}
+    updateW_ {player: {location: player.location, health: player.health - bombStrength, bombs: player.bombs}}
   else 
     executeDefaultBehavior
-  where
-    isExplosion (Explosion _) = true
-    isExplosion _ = false
 
-
+checkEnemies :: Reaction World 
+checkEnemies = do 
+  {enemies} <- getW 
+  updateW_ {enemies: Nil}
+  checkEnemiesH enemies 
+  where 
+  checkEnemiesH Nil = executeDefaultBehavior
+  checkEnemiesH (f:r) = do 
+    {enemies, board} <- getW
+    if f.health <= 0 then do    
+      checkEnemiesH r
+    else if isPlayerExplosion (fromMaybe Empty (Grid.index board f.location)) then do
+      updateW_ {enemies: {location: f.location, health: f.health - bombStrength, bombs: f.bombs, lastDirection: f.lastDirection, id: f.id} : enemies}
+      checkEnemiesH r
+    else do
+       updateW_ {enemies: f : enemies}
+       checkEnemiesH r
+  isPlayerExplosion (Explosion {owner: Player, timer: _}) = true 
+  isPlayerExplosion _ = false
+    
 
 movePlayer :: { x :: Int, y :: Int } -> Direction -> Reaction World
 movePlayer { x: xd, y: yd } dir = do
@@ -214,9 +234,6 @@ gainBomb (Enemy {id: id}) int = do
       f : (gainBombEnemy r)
 
 
-
-
-
 updateBombs :: Reaction World
 updateBombs = do
   {board} <- getW
@@ -267,12 +284,12 @@ updateExplosions :: Reaction World
 updateExplosions = do
   {board} <- getW
   let arrayGrid = Grid.enumerate board
-  let explosions = Array.filter isExplosion arrayGrid
+  let explosions = Array.filter isTupleExplosion arrayGrid
   let explosionsList = Array.foldl (\ a b -> b : a) Nil explosions
   updateExplosionsH explosionsList
   where
-  isExplosion (Tuple _ (Explosion _)) = true
-  isExplosion (Tuple _ _) = false
+  isTupleExplosion (Tuple _ (Explosion _)) = true
+  isTupleExplosion (Tuple _ _) = false
   updateExplosionsH Nil = executeDefaultBehavior
   updateExplosionsH (Cons (Tuple _ Wall) _) = executeDefaultBehavior
   updateExplosionsH (Cons (Tuple _ Empty) _) = executeDefaultBehavior
@@ -325,10 +342,10 @@ isEmpty :: { x :: Int, y :: Int} -> Grid Tile -> Boolean
 isEmpty position board = do 
   let tile = Grid.index board position
   tile == Just Empty || isExplosion (fromMaybe Empty tile)
-  where
-    isExplosion (Explosion _) = true
-    isExplosion _ = false
 
+isExplosion :: Tile -> Boolean 
+isExplosion (Explosion _) = true
+isExplosion _ = false
 
 moveEnemies :: Reaction World
 moveEnemies = do
