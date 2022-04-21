@@ -151,7 +151,7 @@ checkPlayer :: Reaction World
 checkPlayer = do
   {player, board} <- getW
   if player.health <= 0 then do
-    updateW_ {player: {location: {x: 1, y: 1}, health: 100, bombs: 0}}
+    updateW_ {player: {location: {x: 1, y: 1}, health: 100, bombs: 0}, score: 0}
     widget "label_hp" $ Label { content: show player.health }
   else if isExplosion (fromMaybe Empty (Grid.index board player.location)) then do
     updateW_ {player: {location: player.location, health: player.health - bombStrength, bombs: player.bombs}}
