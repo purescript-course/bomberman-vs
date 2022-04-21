@@ -70,7 +70,7 @@ createReactor = do
 createInitialWorld :: Effect World
 createInitialWorld = do
   board <- Grid.constructM width height constructor
-  pure { player, enemies, board,lastTick: 0}
+  pure { player, enemies, board,lastTick: 0, score: 0}
   where
   player = {location: { x: 1, y: 1 }, health: maxHealth, bombs: 0}
   enemies = ({location:{x: (width - 2), y: (height - 2)}, lastDirection: {x: (width - 2), y: (height - 2)}, bombs: 0 , id: 0 , health: maxHealth} : 
@@ -103,7 +103,7 @@ derive instance tileEq :: Eq Tile
 derive instance directionEq :: Eq Direction
 derive instance ownerEq :: Eq Owner
 
-type World = { player :: Player, enemies :: List Enemy, board :: Grid Tile, lastTick :: Int}
+type World = { player :: Player, enemies :: List Enemy, board :: Grid Tile, lastTick :: Int, score :: Int}
 
 draw :: World -> Drawing
 draw { player, board, enemies} = do
@@ -168,15 +168,16 @@ checkEnemies = do
   where 
   checkEnemiesH Nil = executeDefaultBehavior
   checkEnemiesH (f:r) = do 
-    {enemies, board} <- getW
+    {enemies, board, score} <- getW
     if f.health <= 0 then do    
       checkEnemiesH r
     else if isPlayerExplosion (fromMaybe Empty (Grid.index board f.location)) then do
-      updateW_ {enemies: {location: f.location, health: f.health - bombStrength, bombs: f.bombs, lastDirection: f.lastDirection, id: f.id} : enemies}
+      updateW_ {enemies: {location: f.location, health: f.health - bombStrength, bombs: f.bombs, lastDirection: f.lastDirection, id: f.id} : enemies, score: score + 1}
       checkEnemiesH r
     else do
        updateW_ {enemies: f : enemies}
-       checkEnemiesH r
+       checkEnemiesH r 
+    widget "label_score" $ Label { content: show score }
   isPlayerExplosion (Explosion {owner: Player, timer: _}) = true 
   isPlayerExplosion _ = false
     
