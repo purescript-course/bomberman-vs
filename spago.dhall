@@ -16,7 +16,6 @@ to generate this file without the comments in this block.
   , "effect"
   , "foldable-traversable"
   , "grid-reactors"
-  , "halogen"
   , "integers"
   , "lists"
   , "maybe"
@@ -24,7 +23,6 @@ to generate this file without the comments in this block.
   , "psci-support"
   , "random"
   , "tuples"
-  , "web-touchevents"
   ]
 , packages = ./packages.dhall
 , sources = [ "src/**/*.purs", "test/**/*.purs" ]
