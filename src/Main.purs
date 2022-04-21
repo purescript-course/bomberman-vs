@@ -3,7 +3,7 @@ module Main
 
 import Data.Array ((!!))
 import Data.Array as Array
-import Data.Grid (Coordinates, Grid, updateAt')
+import Data.Grid (Grid, Coordinates, updateAt')
 import Data.Grid as Grid
 import Data.Int as I
 import Data.List (List(..), all, (:))
@@ -15,7 +15,8 @@ import Data.Tuple.Nested ((/\))
 import Effect (Effect)
 import Effect.Class (liftEffect)
 import Effect.Random (randomInt)
-import Prelude (class Eq, Unit, bind, const, discard, map, mod, negate, otherwise, pure, show, when, ($), (&&), (+), (-), (/=), (<), (>), (<$>), (<<<), (<=), (==), (||))
+import Halogen.HTML (elementNS)
+import Prelude (class Eq, Unit, bind, const, discard, map, mod, negate, otherwise, pure, show, when, ($), (*), (&&), (+), (-), (/=), (<), (>), (<$>), (<<<), (<=), (==), (||))
 import Reactor (Reactor, Widget(..), executeDefaultBehavior, getW, runReactor, updateW_)
 import Reactor.Events (Event(..))
 import Reactor.Graphics.Colors as Color
@@ -31,26 +32,26 @@ height :: Int
 height = 15
 
 bombLimit :: Int
-bombLimit = 5
-
+bombLimit = 10
+ 
 maxHealth :: Int
 maxHealth = 100
 
 ticksToExplode :: Int
-ticksToExplode = 6
+ticksToExplode = 15
 
 explosionDuration :: Int
-explosionDuration = 3
+explosionDuration = 10
 
 tickSpeed :: Int
-tickSpeed = 25
+tickSpeed = 6
 
 explosionLength :: Int
 explosionLength = 4
 
-slidingSpeed :: Number
-slidingSpeed = 0.1
-
+enemySpeed :: Int
+enemySpeed = 35
+ 
 main :: Effect Unit 
 main = do
   reactor <- createReactor
@@ -87,7 +88,7 @@ isCorner point = List.elem point ({x: 1, y: 1} : {x: 1, y: 2} : {x: 2, y: 1} : {
 isWall :: Coordinates -> Boolean
 isWall {x,y} =  x == 0 || x == (width - 1) || y == 0 || y == (height - 1) || (I.even x && I.even y)
 
-data Tile = Wall | Empty | Crate | Bomb {timer :: Int} | Explosion {timer :: Int}
+data Tile = Wall | Empty | Crate | Bomb {timer :: Int, slide :: Maybe Direction} | Explosion {timer :: Int}
 data Direction = Left | Right | Up | Down
 
 type Enemy = {location :: Coordinates, lastDirection :: Coordinates, bombs :: Int}
@@ -95,6 +96,7 @@ type Enemy = {location :: Coordinates, lastDirection :: Coordinates, bombs :: In
 type Player = {location :: Coordinates, health :: Int, bombs :: Int}
 
 derive instance tileEq :: Eq Tile
+derive instance directionEq :: Eq Direction
 
 type World = { player :: Player, enemies :: List Enemy, board :: Grid Tile, lastTick :: Int}
 
@@ -114,10 +116,10 @@ handleEvent :: Event -> Reaction World
 handleEvent event = do
   {player} <- getW
   case event of
-    KeyPress { key: "ArrowLeft" } -> movePlayer { x: -1, y: 0 }
-    KeyPress { key: "ArrowRight" } -> movePlayer { x: 1, y: 0 }
-    KeyPress { key: "ArrowDown" } -> movePlayer { x: 0, y: 1 }
-    KeyPress { key: "ArrowUp" } -> movePlayer { x: 0, y: -1 }
+    KeyPress { key: "ArrowLeft" } -> movePlayer { x: -1, y: 0 } Left
+    KeyPress { key: "ArrowRight" } -> movePlayer { x: 1, y: 0 } Right
+    KeyPress { key: "ArrowDown" } -> movePlayer { x: 0, y: 1 } Down
+    KeyPress { key: "ArrowUp" } -> movePlayer { x: 0, y: -1 } Up
     KeyPress { key: " "} -> placeBomb
     Tick _ -> do
       if player.health <= 0 then 
@@ -129,34 +131,55 @@ handleEvent event = do
 timer :: Reaction World
 timer = do
   {lastTick} <- getW
-  if (lastTick `mod` tickSpeed == 0) then do
+  if (lastTick `mod` enemySpeed == 0) then do
     moveEnemies
+    updateBombs
+    updateExplosions
+    updateW_ {lastTick: lastTick + 1}  
+  else if (lastTick `mod` tickSpeed == 0) then do
     updateBombs
     updateExplosions
     updateW_ {lastTick: lastTick + 1} 
   else 
     updateW_ {lastTick: lastTick + 1}
 
-movePlayer :: { x :: Int, y :: Int } -> Reaction World
-movePlayer { x: xd, y: yd } = do
+movePlayer :: { x :: Int, y :: Int } -> Direction -> Reaction World
+movePlayer { x: xd, y: yd } dir = do
   { player: {location:{ x, y }, health: health, bombs}, board} <- getW
   let newPlayerPosition = { x: x + xd, y: y + yd }
-  when (isEmpty newPlayerPosition board) $
+  if (isEmpty newPlayerPosition board) then
     updateW_ {player: {location: newPlayerPosition, health: health, bombs: bombs}}
+  else if isBomb ( fromMaybe Empty (Grid.index board newPlayerPosition)) && (isEmpty { x: x + (2 * xd), y: y + (2 * yd) } board) then do 
+    let bomb = fromMaybe Empty (Grid.index board newPlayerPosition)
+    pushBomb newPlayerPosition { x: x + (2 * xd), y: y + (2 * yd) } dir bomb
+  else 
+    executeDefaultBehavior
+  where
+    isBomb (Bomb _) = true
+    isBomb _ = false
+
+
+pushBomb :: Coordinates -> Coordinates -> Direction -> Tile -> Reaction World 
+pushBomb old new dir (Bomb bomb) = do 
+  {board, player} <- getW 
+  updateW_ {board: Grid.updateAt' old Empty board }
+  {board} <- getW 
+  updateW_ {player: {location: old, health: player.health, bombs: player.bombs}, board: Grid.updateAt' new (Bomb {timer: bomb.timer, slide: Just dir}) board }
+pushBomb _ _ _ _ = executeDefaultBehavior
 
 
 placeBomb :: Reaction World
 placeBomb = do
   {player: {location, bombs, health}, board}  <- getW
   if bombs <= bombLimit then
-    updateW_ {player: {location: location, health: health, bombs: bombs + 1}, board: Grid.updateAt' location (Bomb {timer: ticksToExplode}) board}
+    updateW_ {player: {location: location, health: health, bombs: bombs + 1}, board: Grid.updateAt' location (Bomb {timer: ticksToExplode, slide: Nothing}) board}
   else
     executeDefaultBehavior
 
 placeEnemyBomb :: Coordinates -> Reaction World
 placeEnemyBomb cor = do
   {board} <- getW
-  updateW_ {board: Grid.updateAt' cor (Bomb {timer: ticksToExplode}) board}
+  updateW_ {board: Grid.updateAt' cor (Bomb {timer: ticksToExplode, slide: Nothing}) board}
 
 updateBombs :: Reaction World
 updateBombs = do
@@ -173,17 +196,35 @@ updateBombs = do
   updateBombsH (Cons (Tuple _ Empty) _) = executeDefaultBehavior
   updateBombsH (Cons (Tuple _ Crate) _) = executeDefaultBehavior
   updateBombsH (Cons (Tuple _ (Explosion _)) _) = executeDefaultBehavior
-  updateBombsH ((Tuple location (Bomb f)) : r) = 
-    if f.timer == 0 then do
-      {board} <- getW
+  updateBombsH ((Tuple location (Bomb f)) : r) = do
+    {board} <- getW
+    if f.timer <= 0 then do
       updateW_ {board: Grid.updateAt' location Empty board} 
       createExplosion location
       let newR = List.filter (\a -> (fst a) /= location ) r
       updateBombsH newR
-    else do 
-      {board} <- getW
-      updateW_ {board: Grid.updateAt' location (Bomb {timer: (f.timer - 1)}) board}
+    else if f.slide == Nothing then do 
+      updateW_ {board: Grid.updateAt' location (Bomb {timer: (f.timer - 1), slide: f.slide}) board}
       updateBombsH r
+    else do
+        case f.slide of
+          Just Up -> do slide {x: location.x, y: location.y - 1}
+          Just Down -> do slide {x: location.x, y: location.y + 1}
+          Just Left -> do slide {x: location.x - 1, y: location.y}
+          Just Right -> do slide {x: location.x + 1, y: location.y}
+          Nothing -> do executeDefaultBehavior
+    where
+      slide cor = do 
+        {board} <- getW
+        if isEmpty cor board then do
+          updateW_ {board: Grid.updateAt' location Empty board}
+          let newR = List.filter (\a -> (fst a) /= location ) r
+          {board} <- getW
+          updateW_ {board: Grid.updateAt' cor (Bomb {timer: (f.timer - 1), slide: f.slide}) board}
+          updateBombsH newR
+        else do
+          updateW_ {board: Grid.updateAt' location (Bomb {timer: (f.timer - 1), slide: Nothing}) board}
+          updateBombsH r
 
 updateExplosions :: Reaction World
 updateExplosions = do
@@ -226,7 +267,7 @@ createExplosion cor = do
       executeDefaultBehavior 
     else if fromMaybe Crate (Grid.index board {x,y}) == Crate then 
       updateW_ {board: Grid.updateAt' {x: x,y: y} (Explosion {timer: explosionDuration}) board}
-    else if isBomb ( fromMaybe (Bomb {timer: 0}) (Grid.index board {x,y})) then do
+    else if isBomb ( fromMaybe (Bomb {timer: 0, slide: Nothing}) (Grid.index board {x,y})) then do
       createExplosion {x, y}
     else do
       updateW_ {board: Grid.updateAt' {x: x,y: y} (Explosion {timer: explosionDuration}) board}
@@ -242,6 +283,7 @@ createExplosion cor = do
 isEmpty :: { x :: Int, y :: Int} -> Grid Tile -> Boolean
 isEmpty position board = Grid.index board position == Just Empty
 
+
 moveEnemies :: Reaction World
 moveEnemies = do
   {enemies} <- getW
@@ -251,7 +293,7 @@ moveEnemies = do
   moveEnemiesH Nil = executeDefaultBehavior
   moveEnemiesH (f:r) = do 
     {board, enemies} <- getW
-    i <- (liftEffect (randomInt 0 3))
+    i <- (liftEffect (randomInt 0 6))
     if i /= 0 then do
         b <- (liftEffect (randomInt 0 8))
         if b == 5 then do
