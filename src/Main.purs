@@ -56,9 +56,9 @@ enemySpeed = 35
 main :: Effect Unit 
 main = do
   reactor <- createReactor
-  runReactor reactor { title: "Bombermqeee ", width, height, widgets: [
+  runReactor reactor { title: "Bombera ", width, height, widgets: [
   "section_hp" /\ Section {title: "Health"}, 
-  "label_hp" /\ Label {content: show $ 100}, 
+  "label_health" /\ Label {content: show $ 100}, 
   "section_score" /\ Section {title: "Score"}, 
   "label_score" /\ Label {content: show 0}]}
 
@@ -152,13 +152,13 @@ checkPlayer = do
   {player, board} <- getW
   if player.health <= 0 then do
     updateW_ {player: {location: {x: 1, y: 1}, health: 100, bombs: 0}, score: 0}
-    widget "label_hp" $ Label { content: show player.health }
+    widget "label_health" $ Label { content: show player.health }
   else if isExplosion (fromMaybe Empty (Grid.index board player.location)) then do
     updateW_ {player: {location: player.location, health: player.health - bombStrength, bombs: player.bombs}}
-    widget "label_hp" $ Label { content: show player.health }
+    widget "label_health" $ Label { content: show player.health }
   else do
     executeDefaultBehavior
-    widget "label_hp" $ Label { content: show player.health }
+    widget "label_health" $ Label { content: show player.health }
 
 checkEnemies :: Reaction World 
 checkEnemies = do 
