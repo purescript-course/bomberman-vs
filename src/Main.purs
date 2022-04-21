@@ -124,9 +124,7 @@ handleEvent event = do
     KeyPress { key: "ArrowUp" } -> movePlayer { x: 0, y: -1 } Up
     KeyPress { key: " "} -> placeBomb
     Tick _ -> do
-      if player.health <= 0 then 
-        updateW_ {player: {location: {x: 1, y: 1}, health: 100, bombs: bombLimit}}
-      else 
+        checkPlayer
         timer
     _ -> executeDefaultBehavior
 
@@ -144,6 +142,21 @@ timer = do
     updateW_ {lastTick: lastTick + 1} 
   else 
     updateW_ {lastTick: lastTick + 1}
+
+checkPlayer :: Reaction World
+checkPlayer = do
+  {player, board} <- getW
+  if player.health <= 0 then 
+    updateW_ {player: {location: {x: 1, y: 1}, health: 100, bombs: 0}}
+  else if isExplosion (fromMaybe Empty (Grid.index board player.location)) then 
+    updateW_ {player: {location: player.location, health: player.health - 1, bombs: player.bombs}}
+  else 
+    executeDefaultBehavior
+  where
+    isExplosion (Explosion _) = true
+    isExplosion _ = false
+
+
 
 movePlayer :: { x :: Int, y :: Int } -> Direction -> Reaction World
 movePlayer { x: xd, y: yd } dir = do
