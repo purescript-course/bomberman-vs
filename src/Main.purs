@@ -21,7 +21,7 @@ import Reactor (Reactor, Widget(..), executeDefaultBehavior, getW, runReactor, u
 import Reactor.Events (Event(..))
 import Reactor.Graphics.Colors as Color
 import Reactor.Graphics.Drawing (Drawing, drawGrid, fill, tile)
-import Reactor.Reaction (Reaction)
+import Reactor.Reaction (Reaction, widget)
 
 width :: Int
 width = 15
@@ -150,12 +150,15 @@ timer = do
 checkPlayer :: Reaction World
 checkPlayer = do
   {player, board} <- getW
-  if player.health <= 0 then 
+  if player.health <= 0 then do
     updateW_ {player: {location: {x: 1, y: 1}, health: 100, bombs: 0}}
-  else if isExplosion (fromMaybe Empty (Grid.index board player.location)) then 
+    widget "label_hp" $ Label { content: show player.health }
+  else if isExplosion (fromMaybe Empty (Grid.index board player.location)) then do
     updateW_ {player: {location: player.location, health: player.health - bombStrength, bombs: player.bombs}}
-  else 
+    widget "label_hp" $ Label { content: show player.health }
+  else do
     executeDefaultBehavior
+    widget "label_hp" $ Label { content: show player.health }
 
 checkEnemies :: Reaction World 
 checkEnemies = do 
